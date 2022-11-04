@@ -16,11 +16,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Test
+        working-directory: infra/
         run: docker-compose run --rm app sh -c "python manage.py wait_for_db && python manage.py test"
-        with:
-          context: /infra
       - name: Lint
+        working-directory: infra/
         run: docker-compose run --rm app sh -c "flake8"
-        with:
-          context: /infra
-
