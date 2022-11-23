@@ -1,0 +1,186 @@
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+
+from rest_framework.test import APIClient
+from rest_framework import status
+
+from users.models import Student, Coach
+
+CREATE_USER_URL = reverse('users:create')
+CREATE_STUDENT_URL = reverse('users:create_student')
+CREATE_COACH_URL = reverse('users:create_coach')
+TOKEN_URL = reverse('users:token')
+ME_URL = reverse('users:me')
+
+
+def create_user(**kwargs):
+    return get_user_model().objects.create_user(**kwargs)
+
+class UserApiTests(TestCase):
+
+    def setUp(self):
+        self.super_client = APIClient()
+        self.user_client = APIClient()
+        self.super = get_user_model().objects.create_superuser(
+            email='superemail@mail.ru',
+            phone='+79227778899',
+            password='suppass123',
+        )
+        self.super_client.force_authenticate(user=self.super)
+
+        self.pre_student = get_user_model().objects.create(
+            email='student@example.com',
+            phone='+79227778801',
+            password='studentpass123',
+        )
+        self.pre_coach = get_user_model().objects.create(
+            email='coach@example.com',
+            phone='+79227778802',
+            password='coachpass123',
+        )
+
+    def test_create_user(self):
+        payload = {
+            'email': 'test1@example.com',
+            'password': 'testpass123',
+            'phone': '+79226667798'
+        }
+
+        res = self.super_client.post(CREATE_USER_URL, payload)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        user = get_user_model().objects.get(email=payload['email'])
+
+        self.assertTrue(user.check_password(payload['password']))
+        self.assertNotIn('password', res.data)
+
+    def test_user_with_email_exists_error(self):
+        payload = {
+            'email': 'test@example.com',
+            'password': 'testpass123',
+            'phone': '+79226667799'
+        }
+
+        create_user(**payload)
+        res = self.super_client.post(CREATE_USER_URL, payload)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_password_too_short_error(self):
+        payload = {
+            'email': 'test@example.com',
+            'phone': '+79225667799',
+            'password': 'pw',
+        }
+        res = self.super_client.post(CREATE_USER_URL, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        user_exists = get_user_model().objects.filter(
+            email=payload['email']
+        ).exists()
+        self.assertFalse(user_exists)
+
+    def test_create_student_user(self):
+        payload = {
+            'my_email': 'student@example.com',
+            'username': 'username',
+            'first_name': 'fname',
+            'last_name': 'lname',
+        }
+        self.user_client.force_authenticate(user=self.pre_student)
+        res = self.user_client.post(CREATE_STUDENT_URL, payload)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        student = Student.objects.get(user__email=payload['my_email'])
+        self.assertEqual(student.user.is_student, True)
+        self.assertEqual(student.username, payload['username'])
+
+    def test_create_coach_user(self):
+        payload = {
+            'my_email': 'coach@example.com',
+            'last_name': 'last_name',
+            'username':'coach',
+            'first_name': 'faname',
+            'specialization':'ST',
+        }
+
+        self.user_client.force_authenticate(user=self.pre_coach)
+        res = self.user_client.post(CREATE_COACH_URL, payload)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        coach = Coach.objects.get(user__email=payload['my_email'])
+        self.assertNotIn('password', res.data)
+        self.assertEqual(coach.user.is_coach, True)
+        self.assertEqual(coach.username, payload['username'])
+        self.assertEqual(coach.specialization, payload['specialization'])
+
+    def test_create_token_for_user(self):
+        user_details = {
+            'email': 'test@example.com',
+            'phone': '+79189991212',
+            'password': 'test-user-password123',
+        }
+        create_user(**user_details)
+
+        payload = {
+            'email': user_details['email'],
+            'phone': user_details['phone'],
+            'password': user_details['password'],
+        }
+
+        res = self.super_client.post(TOKEN_URL, payload)
+
+        self.assertIn('token', res.data)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_create_token_bad_credentials(self):
+        create_user(email='test@example.com', phone='+79189991212',
+                    password='goodpass')
+
+        payload = {'email': 'test@example.com', 'phone':'+79189991212',
+                   'password': 'badpass'}
+
+        res = self.super_client.post(TOKEN_URL, payload)
+
+        self.assertNotIn('token', res.data)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_token_email_not_found(self):
+        payload = {'email': 'student@example.com',
+                   'password': 'badpass'}
+
+        res = self.super_client.post(TOKEN_URL, payload)
+
+        self.assertNotIn('token', res.data)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retrieve_user_unauthorized(self):
+        res = self.user_client.get(ME_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_retrieve_profile_success(self):
+        res = self.super_client.get(ME_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, {
+            'phone': self.super.phone,
+            'email': self.super.email,
+        })
+
+    def test_post_me_not_allowed(self):
+        res = self.super_client.post(ME_URL, {})
+
+        self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_update_user_profile(self):
+        payload = {'email': 'updated@mail.ru',
+                   'password': 'Updated_pass123'}
+
+        res = self.super_client.patch(ME_URL, payload)
+
+        self.super.refresh_from_db()
+        self.assertEqual(self.super.email, payload['email'])
+        self.assertTrue(self.super.check_password(payload['password']))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
