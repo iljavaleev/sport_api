@@ -12,6 +12,17 @@ from django.contrib.auth.models import (
     BaseUserManager,
     PermissionsMixin,
 )
+from django.core.mail import EmailMessage
+
+
+def send_email(email, password):
+    email = EmailMessage(
+        'Credentials to access sport_api',
+        f'username: {email}, password: {password}',
+        'sport_api@gmail.com',
+        [f'{email}']
+    )
+    email.send()
 
 
 class UserManager(BaseUserManager):
@@ -20,6 +31,7 @@ class UserManager(BaseUserManager):
             raise ValueError('User must have an email address.')
         if not phone:
             raise ValueError('User must have a phone number.')
+        send_email(email, password)
         user = self.model(
             email=self.normalize_email(email),
             phone=PhoneNumber.from_string(phone_number=phone,
@@ -44,9 +56,9 @@ class UserManager(BaseUserManager):
         return user
 
 class StudentManager(BaseUserManager):
-    def create_user(self, email, first_name, last_name, username,
+    def create_user(self, user, first_name, last_name, username,
                     **extra_fields):
-        user = get_object_or_404(get_user_model(), email=email)
+
         user.is_student = True
         user.save(using=self._db)
         student = self.model(
@@ -61,10 +73,9 @@ class StudentManager(BaseUserManager):
         return student
 
 class CoachManager(BaseUserManager):
-    def create_user(self, email, specialization, first_name, last_name,
-                     username, **extra_fields):
+    def create_user(self,user, specialization, first_name,
+                    last_name, username, **extra_fields):
 
-        user = get_object_or_404(get_user_model(), email=email)
         user.is_coach = True
         user.save(using=self._db)
         coach = self.model(
@@ -98,6 +109,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 class Student(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE,
                                 primary_key=True)
+
     first_name = models.CharField(
         max_length=150,
         blank=False,
@@ -150,12 +162,20 @@ class Coach(models.Model):
                                  on_delete=models.CASCADE,
                                  primary_key=True)
 
+    students = models.ManyToManyField(
+        Student,
+        related_name='coaches',
+        blank=True
+    )
+
     specialization = models.CharField(
         max_length=2,
         choices=Specialization.choices,
         blank=False,
     )
+
     experience = models.IntegerField(default=0)
+
     first_name = models.CharField(
         max_length=150,
         blank=False,

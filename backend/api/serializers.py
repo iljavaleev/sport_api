@@ -4,6 +4,8 @@ from rest_framework import serializers
 from users.models import Student, Coach
 from phonenumber_field.serializerfields import PhoneNumberField
 from django.utils.translation import gettext as _
+from django.contrib.auth.password_validation import validate_password
+
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -26,65 +28,59 @@ class UserSerializer(serializers.ModelSerializer):
 
         return user
 
-class AuthTokenSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(
-        style={'input_type':'password'},
-    )
 
-    def validate(self, attrs):
-        email = attrs.get('email')
-        password = attrs.get('password')
-        phone = get_object_or_404(get_user_model(), email=email).phone
-        user = authenticate(
-            request=self.context.get('request'),
-            username=email,
-            password=password,
-            phone=phone
-        )
-        if not user:
-            msg = _('Unable to authenticate with provided credentials.')
-            raise serializers.ValidationError(msg, code='authorization')
+class WorkerSerializer(serializers.ModelSerializer):
+    email = serializers.SerializerMethodField()
+    password = serializers.SerializerMethodField()
+    phone = serializers.SerializerMethodField()
 
-        attrs['user'] = user
-        return attrs
-
-
-def pop_email_and_create_object(obj, data, model):
-    email = obj.initial_data.get('my_email')
-    try:
-        return model.objects.create_user(email=email, **data)
-    except get_user_model().DoesNotExist:
-        raise serializers.ValidationError({
-            'errors': 'This email is not exists. Contact the head coach'
-        })
-
-class StudentSerializer(serializers.ModelSerializer):
-    my_email = serializers.SerializerMethodField()
 
     class Meta:
-        model = Student
-        fields = [ 'username', 'first_name', 'last_name', 'sports_titles',
-                   'weight', 'height', 'date_of_birth', 'my_email']
+        fields = ['username', 'first_name', 'last_name', 'email', 'password',
+                  'phone']
 
-    def get_my_email(self, obj):
+    def get_email(self, obj):
         return obj.user.email
 
+    def get_password(self, obj):
+        return obj.user.password
+
+    def get_phone(self, obj):
+        return obj.user.phone
+
+    def pop_data_and_create_object(self, data, model):
+        user = self.initial_data.get('user')
+        try:
+            return model.objects.create_user(user=user,
+                                             **data)
+        except get_user_model().DoesNotExist:
+            raise serializers.ValidationError({
+                'errors': 'This user is not exists. Contact the head coach'
+            })
+
+
     def create(self, validated_data):
-        return pop_email_and_create_object(self,validated_data, self.Meta.model)
+        return self.pop_data_and_create_object(validated_data, self.Meta.model)
 
 
-class CoachSerializer(serializers.ModelSerializer):
-    my_email = serializers.SerializerMethodField()
+class StudentSerializer(WorkerSerializer):
+    class Meta:
+        model = Student
+        fields = WorkerSerializer.Meta.fields + ['sports_titles','weight',
+                                                 'height', 'date_of_birth']
+
+class CoachSerializer(WorkerSerializer):
 
     class Meta:
         model = Coach
-        fields = ['my_email', 'username', 'first_name', 'last_name',
-                  'specialization', 'experience', 'achievements']
+        fields = WorkerSerializer.Meta.fields + ['specialization',
+                                                 'experience', 'achievements']
 
-    def get_my_email(self, obj):
-        return obj.user.email
 
-    def create(self, validated_data):
-        return pop_email_and_create_object(self, validated_data,
-                                           self.Meta.model)
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True)
+
+    def validate_new_password(self, value):
+        validate_password(value)
+        return value

@@ -7,7 +7,6 @@ app_name = 'users'
 
 urlpatterns = [
     path('create/', views.CreateUserView.as_view(), name='create'),
-    path('token/', views.CreateTokenView.as_view(), name='token'),
     path('me/', views.ManageUserView.as_view(), name='me'),
     path('create_student/',
          views.CreateStudentView.as_view(),
@@ -15,4 +14,7 @@ urlpatterns = [
     path('create_coach/',
          views.CreateCoachView.as_view(),
          name='create_coach'),
+    path('change_password/',
+         views.ChangePasswordView.as_view(),
+         name='change_password'),
 ]
